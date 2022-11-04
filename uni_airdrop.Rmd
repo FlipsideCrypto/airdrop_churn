@@ -1,0 +1,149 @@
+---
+title: "Airdrop Churn Example"
+author: "Charliemarketplace"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+# Intro 
+
+This is an example analysis for understanding Crypto Token Airdrops and their 
+efficacy; specifically related to churn (of the tokens) and continued use of the protocol.
+
+# Methodology 
+
+Looking specifically at the Uniswap UNI airdrop to identify the following: 
+
+ - Number of addresses who claimed the airdrop (recipients)
+ - Characteristics of recipients over last 3 months {number of transactions, days active}
+  - Use of Uniswap DEX by recipients
+ - Change in UNI balance by recipients over time
+ - Any relationship between holding/accumulating/selling UNI and use of the Uniswap DEX
+
+# Recipients
+
+```{r}
+library(shroomDK)
+library(reactable)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+
+uni_query <- {
+"
+  with airdrops AS (
+  -- Uniswap Claim 
+  SELECT LOWER('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984') as CONTRACT_ADDRESS,'UNI' as SYMBOL, LOWER('0x2e7ba6ef') as ORIGIN_FUNCTION_SIGNATURE FROM DUAL 
+),
+
+airdrop_claimants AS (
+SELECT TX_HASH, CONTRACT_ADDRESS, FROM_ADDRESS, TO_ADDRESS, SYMBOL, ORIGIN_FUNCTION_SIGNATURE, AMOUNT, AMOUNT_USD
+  FROM ethereum.core.ez_token_transfers
+WHERE CONTRACT_ADDRESS IN (SELECT CONTRACT_ADDRESS FROM airdrops) AND 
+ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops)
+)
+
+SELECT TO_ADDRESS as user_address, contract_address as token_contract, symbol as token_symbol, 
+COUNT(*) as n_airdrops_claimed, SUM(AMOUNT) as claimed_token_volume, SUM(AMOUNT_USD) as claimed_usd_volume 
+FROM airdrop_claimants
+GROUP BY user_address, token_contract, token_symbol
+  "
+}
+
+uni_airdrop <- auto_paginate_query(uni_query, api_key = readLines('api_key.txt'))
+
+```
+
+There are `r nrow(uni_airdrop)` recipients of the airdrop receiving a total of 
+`r sum(uni_airdrop$CLAIMED_TOKEN_VOLUME)` UNI Tokens.
+
+The distribution of tokens was very uneven with a range of `r min(uni_airdrop$CLAIMED_TOKEN_VOLUME)` to 
+`r max(uni_airdrop$CLAIMED_TOKEN_VOLUME)` token claimed.
+
+```{r}
+plot_ly(data = uni_airdrop, x = ~CLAIMED_TOKEN_VOLUME, type = 'histogram') %>% 
+  layout(xaxis = list(title = "# Tokens Claimed", range = c(0,2500)),
+         yaxis = list(title = "# of Claimants in Range", range = c(0, 100000)))
+```
+
+```{r}
+typical_users <- uni_airdrop %>% filter(CLAIMED_TOKEN_VOLUME <= 500 & CLAIMED_TOKEN_VOLUME >= 300)
+```
+
+The vast majority, over 210,000 of the ~217,000 addresses, claimed between 300 and 500 tokens. Focusing the rest
+of this analysis on these 'typical' users of Uniswap that received the standard airdrop amount, we found these `r 100 * 210/217`% of users claimed 
+`r 100 * sum(typical_users$CLAIMED_TOKEN_VOLUME)/sum(uni_airdrop$CLAIMED_TOKEN_VOLUME)`% of the airdrop.
+
+## Characteristics of Typical Users Today 
+
+```{r}
+activity_query <- {
+  "
+    with airdrops AS (
+  -- Uniswap Claim 
+  SELECT LOWER('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984') as CONTRACT_ADDRESS,'UNI' as SYMBOL, LOWER('0x2e7ba6ef') as ORIGIN_FUNCTION_SIGNATURE FROM DUAL 
+),
+
+airdrop_claimants AS (
+SELECT TX_HASH, CONTRACT_ADDRESS, FROM_ADDRESS, TO_ADDRESS, SYMBOL, ORIGIN_FUNCTION_SIGNATURE, AMOUNT, AMOUNT_USD
+  FROM ethereum.core.ez_token_transfers
+WHERE CONTRACT_ADDRESS IN (SELECT CONTRACT_ADDRESS FROM airdrops) AND 
+ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops)
+),
+
+claimant_details AS (SELECT TO_ADDRESS as user_address, contract_address as token_contract, symbol as token_symbol, 
+COUNT(*) as n_airdrops_claimed, SUM(AMOUNT) as claimed_token_volume, SUM(AMOUNT_USD) as claimed_usd_volume 
+FROM airdrop_claimants
+GROUP BY user_address, token_contract, token_symbol),
+
+typical_users AS (
+SELECT * FROM claimant_details WHERE 
+claimed_token_volume >= 300 AND 
+claimed_token_volume <= 500
+)
+  
+  SELECT FROM_ADDRESS as user_address,
+  COUNT(*) as n_txn,
+ count(DISTINCT(date_trunc('DAY', block_timestamp))) as n_days_active,
+  DATEDIFF(day, MAX(BLOCK_TIMESTAMP), CURRENT_DATE()) as days_since_last_txn,
+  -- a complex tx is any tx that is NOT a simple ETH transfer; i.e., has input data!
+ count_if(INPUT_DATA != '0x') as n_complex_txn,
+ COUNT (DISTINCT CASE WHEN INPUT_DATA != '0x' THEN TO_ADDRESS END) as n_contracts
+ FROM ethereum.core.fact_transactions 
+  WHERE 
+  BLOCK_NUMBER >= 15285000 AND 
+  BLOCK_NUMBER <= 15890000 AND 
+  FROM_ADDRESS IN (SELECT user_address FROM typical_users)
+GROUP BY FROM_ADDRESS
+"
+}
+
+typical_usage <- auto_paginate_query(activity_query, api_key = readLines('api_key.txt'))
+
+```
+
+Looking at how the 210,000 claimants used the blockchain in the roughly 90 day 
+period between: Block 15285000 and Block 15890000, only `r nrow(typical_usage)` have 
+done any on-chain transaction in the 90 day period: this is a general `r 100*(1 - nrow(typical_usage)/nrow(uni_airdrop))`% 
+churn.
+
+Among the Uni claimants that have been active in the last 90 days
+
+```{r}
+
+
+```
+
+## Use of Uniswap DEX
+
+## Change in UNI balance 
+
+## Relationship between balance changes and usage
+
+
+
