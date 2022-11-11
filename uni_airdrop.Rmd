@@ -19,8 +19,8 @@ efficacy; specifically related to churn (of the tokens) and continued use of the
 
 Looking specifically at the Uniswap UNI airdrop to identify the following: 
 
- - Number of addresses who claimed the airdrop (recipients)
- - Characteristics of recipients over last 3 months {number of transactions, days active}
+ - Number of addresses who claimed the airdrop (recipients) on or prior to block 15890000
+ - Characteristics of recipients over the 3 months preceding block 15890000 {number of transactions, days active}
   - Use of Uniswap DEX by recipients
  - Change in UNI balance by recipients over time
  - Any relationship between holding/accumulating/selling UNI and use of the Uniswap DEX
@@ -45,7 +45,8 @@ airdrop_claimants AS (
 SELECT TX_HASH, CONTRACT_ADDRESS, FROM_ADDRESS, TO_ADDRESS, SYMBOL, ORIGIN_FUNCTION_SIGNATURE, AMOUNT, AMOUNT_USD
   FROM ethereum.core.ez_token_transfers
 WHERE CONTRACT_ADDRESS IN (SELECT CONTRACT_ADDRESS FROM airdrops) AND 
-ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops)
+ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops) AND 
+BLOCK_NUMBER <= 15890000
 )
 
 SELECT TO_ADDRESS as user_address, contract_address as token_contract, symbol as token_symbol, 
@@ -93,7 +94,8 @@ airdrop_claimants AS (
 SELECT TX_HASH, CONTRACT_ADDRESS, FROM_ADDRESS, TO_ADDRESS, SYMBOL, ORIGIN_FUNCTION_SIGNATURE, AMOUNT, AMOUNT_USD
   FROM ethereum.core.ez_token_transfers
 WHERE CONTRACT_ADDRESS IN (SELECT CONTRACT_ADDRESS FROM airdrops) AND 
-ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops)
+ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops) AND 
+BLOCK_NUMBER <= 15890000
 ),
 
 claimant_details AS (SELECT TO_ADDRESS as user_address, contract_address as token_contract, symbol as token_symbol, 
@@ -157,7 +159,7 @@ plot_ly(data = data.frame(), y = ~cdf_tx, type = 'scatter', mode = 'lines+marker
   layout(xaxis = list(title = "Number of Transactions in last 90 days"),
          yaxis = list(title = "Cumulative % of Claimants"),
          title = list(
-           text = "~90% of Claimants have 53 or less transactiosn in last 90", 
+           text = "~90% of Claimants have 53 or less transactions in last 90", 
            y = 0.95)
   )
 
@@ -177,8 +179,6 @@ plot_ly(data = typical_usage, x = ~N_DAYS_ACTIVE, y = ~N_TXN, type = 'scatter', 
 
 ## Use of Uniswap DEX
 
-Among the typical users, including likely bots
-
 ```{r}
 
 dex_swaps_query <- {
@@ -192,7 +192,8 @@ airdrop_claimants AS (
 SELECT TX_HASH, CONTRACT_ADDRESS, FROM_ADDRESS, TO_ADDRESS, SYMBOL, ORIGIN_FUNCTION_SIGNATURE, AMOUNT, AMOUNT_USD
   FROM ethereum.core.ez_token_transfers
 WHERE CONTRACT_ADDRESS IN (SELECT CONTRACT_ADDRESS FROM airdrops) AND 
-ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops)
+ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops) AND 
+BLOCK_NUMBER <= 15890000
 ),
 
 claimant_details AS (SELECT TO_ADDRESS as user_address, contract_address as token_contract, symbol as token_symbol, 
@@ -207,24 +208,24 @@ claimed_token_volume <= 500
 ),
   
 trades_in AS (
-SELECT SENDER as user_address, PLATFORM as protocol, TOKEN_IN as token_contract, SYMBOL_IN as token_symbol, 
+SELECT ORIGIN_FROM_ADDRESS as user_address, PLATFORM as protocol, TOKEN_IN as token_contract, SYMBOL_IN as token_symbol, 
   COUNT(*) as n_sells, SUM(AMOUNT_IN) as sell_token_volume, SUM(AMOUNT_IN_USD) as sell_usd_volume
 FROM ETHEREUM.CORE.EZ_DEX_SWAPS
 WHERE 
   BLOCK_NUMBER >= 15285000 AND 
   BLOCK_NUMBER <= 15890000 AND 
-  SENDER IN (SELECT user_address FROM typical_users)
+  ORIGIN_FROM_ADDRESS IN (SELECT user_address FROM typical_users)
   GROUP BY user_address, protocol, token_contract, TOKEN_SYMBOL
 ), 
 
 trades_out AS (
-SELECT SENDER as user_address, PLATFORM as protocol, TOKEN_OUT as token_contract, SYMBOL_OUT as token_symbol,
+SELECT ORIGIN_FROM_ADDRESS as user_address, PLATFORM as protocol, TOKEN_OUT as token_contract, SYMBOL_OUT as token_symbol,
   COUNT(*) as n_buys, SUM(AMOUNT_OUT) as buy_token_volume, SUM(AMOUNT_OUT_USD) as buy_usd_volume
 FROM ETHEREUM.CORE.EZ_DEX_SWAPS
 WHERE 
   BLOCK_NUMBER >= 15285000 AND 
   BLOCK_NUMBER <= 15890000 AND 
-  SENDER IN (SELECT user_address FROM typical_users)
+  ORIGIN_FROM_ADDRESS IN (SELECT user_address FROM typical_users)
   GROUP BY user_address, protocol, token_contract, TOKEN_SYMBOL
 )
 
@@ -235,12 +236,155 @@ FROM trades_in NATURAL FULL OUTER JOIN trades_out
 }
 
 typical_user_dex_swaps <- auto_paginate_query(query = dex_swaps_query, api_key = readLines('api_key.txt'))
+typical_user_dex_swaps$N_BUYS[is.na(typical_user_dex_swaps$N_BUYS)] <- 0
+typical_user_dex_swaps$N_SELLS[is.na(typical_user_dex_swaps$N_SELLS)] <- 0
+typical_user_dex_swaps$N_TOTAL <- typical_user_dex_swaps$N_BUYS + typical_user_dex_swaps$N_SELLS
+
+agg_swaps <- typical_user_dex_swaps %>% group_by(USER_ADDRESS, PROTOCOL, .add = TRUE) %>% 
+  summarise(
+    total_token_swaps = sum(N_TOTAL)
+  )
 
 ```
 
-## Change in UNI balance 
+Among the typical users, including likely bots a total of `r nrow(agg_swaps)` trader-protocol pairs are identified. These `r length(unique(agg_swaps$USER_ADDRESS))` traders in the 90 day period used a variety of exchanges.
 
-## Relationship between balance changes and usage
+```{r}
+plot_ly(data = agg_swaps, x = ~PROTOCOL,
+        y = ~log(total_token_swaps), type = 'box', 
+        color = ~PROTOCOL) %>% 
+    layout(xaxis = list(title = "Protocol"),
+           yaxis = list(title = "LOG Total Token Swaps (double counts)"),
+         title = list(
+           text = "Swaps occur across numerous exchanges, including Uni v2", 
+           y = 0.95)
+  )
+
+```
+
+In fact, among unique users, both Uniswap v2 and Uniswap v3 are noticeably high.
+
+```{r}
+
+platform_agg <- unique(typical_user_dex_swaps[, c("USER_ADDRESS", "PROTOCOL")]) %>% 
+   group_by(PROTOCOL, .add = TRUE) %>% 
+  summarise(unique_users = n())
+
+plot_ly(data = platform_agg, x = ~PROTOCOL,
+        y = ~unique_users, type = 'bar', 
+        color = ~PROTOCOL) %>% 
+    layout(xaxis = list(title = "Protocol"),
+           yaxis = list(title = "Unique Traders"),
+         title = list(
+           text = "Unique UNI Claimants show loyalty to Uniswap products", 
+           y = 0.95)
+  )
+
+```
+
+Looking at the value of users in terms of ETH volume through the platforms does show that Curve 
+gets a disproportionate amount of ETH sell volume among claimants. But Otherwise Uniswap balances both Buy and Sell volume more than other exchanges.
+
+```{r}
+
+eth_vol <- typical_user_dex_swaps %>% filter(TOKEN_SYMBOL == 'WETH') %>% group_by(PROTOCOL) %>% 
+    summarise(
+    total_eth_buy_vol = sum(BUY_TOKEN_VOLUME, na.rm = TRUE),
+    total_eth_sell_vol = sum(SELL_TOKEN_VOLUME, na.rm = TRUE)
+  )
+
+plot_ly(data = eth_vol, x = ~PROTOCOL,
+        y = ~total_eth_sell_vol, type = 'bar', name = 'Sell Volume'
+        ) %>% 
+  add_trace(y = ~total_eth_buy_vol, name = 'Buy Volume') %>%
+    layout(xaxis = list(title = "Protocol"),
+           yaxis = list(title = "WETH Volume", range = c(0, 1e6)),
+           barmode = 'group',
+         title = list(
+           text = "Uniswap a leader in ETH volume*",  
+           y = 0.95),
+         annotations = list(x = 1, y = -0.075, 
+                            text = "*Curve Sell distorted by known MEV Bots", 
+                            showarrow = FALSE, xref='paper', yref='paper', 
+                            xanchor='right', yanchor='auto')
+    )
+
+```
+
+## UNI Balance Changes 
+
+```{r}
+
+bal_query <- {
+  "
+  with airdrops AS (
+  -- Uniswap Claim 
+  SELECT LOWER('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984') as CONTRACT_ADDRESS,'UNI' as SYMBOL, LOWER('0x2e7ba6ef') as ORIGIN_FUNCTION_SIGNATURE FROM DUAL 
+),
+
+airdrop_claimants AS (
+SELECT TX_HASH, CONTRACT_ADDRESS, FROM_ADDRESS, TO_ADDRESS, SYMBOL, ORIGIN_FUNCTION_SIGNATURE, AMOUNT, AMOUNT_USD
+  FROM ethereum.core.ez_token_transfers
+WHERE CONTRACT_ADDRESS IN (SELECT CONTRACT_ADDRESS FROM airdrops) AND 
+ORIGIN_FUNCTION_SIGNATURE IN (SELECT ORIGIN_FUNCTION_SIGNATURE FROM airdrops) AND 
+BLOCK_NUMBER <= 15890000
+),
+
+claimant_details AS (SELECT TO_ADDRESS as user_address, contract_address as token_contract, symbol as token_symbol, 
+COUNT(*) as n_airdrops_claimed, SUM(AMOUNT) as claimed_token_volume, SUM(AMOUNT_USD) as claimed_usd_volume 
+FROM airdrop_claimants
+GROUP BY user_address, token_contract, token_symbol),
+
+typical_users AS (
+SELECT * FROM claimant_details WHERE 
+claimed_token_volume >= 300 AND 
+claimed_token_volume <= 500
+),
+
+--user_address | token_contract | token_symbol | tw_token_balance
+block_tracked AS (
+    SELECT USER_ADDRESS as address,
+           CONTRACT_ADDRESS as token_address,
+           symbol as token_symbol,
+           BLOCK_NUMBER as block,
+	       BLOCK_TIMESTAMP,
+           PREV_BAL as old_value,
+           CURRENT_BAL as new_value
+    FROM ETHEREUM.CORE.EZ_BALANCE_DELTAS
+    WHERE BLOCK_NUMBER <= 15890000
+    AND token_address = LOWER('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984') 
+    AND USER_ADDRESS IN (SELECT user_address FROM typical_users)
+  ),
+  
+-- group by holder-token
+-- order by block desc
+-- pick most recent block
+-- get holders w/ address type label in case it is a contract
+token_holder AS (
+SELECT *, ROW_NUMBER() over (partition by address, token_address, token_symbol order by block DESC) as rownum
+FROM block_tracked
+)
+  
+SELECT  address as user_address, token_address as token_contract, token_symbol, new_value as token_balance,
+  block as last_balance_change_block, block_timestamp as last_balance_change_date
+FROM token_holder
+    WHERE rownum = 1
+    
+"
+}
+
+uni_balance <- auto_paginate_query(query = bal_query, api_key = readLines('api_key.txt'))
+uni_balance_not0 <- uni_balance %>% filter(TOKEN_BALANCE >= 1)
+```
+
+Of the `r nrow(uni_balance)` claimants with balance history available, `r sum(uni_balance$TOKEN_BALANCE < 1)` or 
+`r paste0(floor(100 * sum(uni_balance$TOKEN_BALANCE == 0)/nrow(uni_balance)), "%")`
+currently have a UNI balance under 1.
+
+```{r}
+plot_ly(data = uni_balance_not0, x = ~TOKEN_BALANCE, type = 'histogram')
+```
+
 
 
 
