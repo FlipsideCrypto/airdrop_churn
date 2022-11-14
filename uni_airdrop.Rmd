@@ -10,6 +10,11 @@ editor_options:
   chunk_output_type: console
 ---
 
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+options(scipen = 99)
+```
+
 # Intro 
 
 This is an example analysis for understanding Crypto Token Airdrops and their 
@@ -69,7 +74,9 @@ The distribution of tokens was very uneven with a range of `r min(uni_airdrop$CL
 
 ```{r}
 plot_ly(data = uni_airdrop, x = ~CLAIMED_TOKEN_VOLUME, type = 'histogram') %>% 
-  layout(xaxis = list(title = "# Tokens Claimed", range = c(0,2500)),
+  layout(
+    title = list(text = "The typical airdrop was ~400 UNI", y = 0.95), 
+      xaxis = list(title = "# Tokens Claimed", range = c(0,2500)),
          yaxis = list(title = "# of Claimants in Range", range = c(0, 100000)))
 ```
 
@@ -145,7 +152,7 @@ plot_ly(data = data.frame(), y = ~cdf_days, type = 'scatter', mode = 'lines+mark
   layout(xaxis = list(title = "Number of Days Active out of last 90"),
          yaxis = list(title = "Cumulative % of Claimants"),
          title = list(
-           text = "~90% of Claimants active 18 or fewer days in last 90", 
+           text = "~90% of Claimants active 18 or fewer days", 
            y = 0.95)
   )
 
@@ -160,7 +167,7 @@ plot_ly(data = data.frame(), y = ~cdf_tx, type = 'scatter', mode = 'lines+marker
   layout(xaxis = list(title = "Number of Transactions in last 90 days"),
          yaxis = list(title = "Cumulative % of Claimants"),
          title = list(
-           text = "~90% of Claimants have 53 or less transactions in last 90", 
+           text = "~90% of Claimants have 53 or less transactions", 
            y = 0.95)
   )
 
@@ -172,7 +179,7 @@ plot_ly(data = data.frame(), y = ~cdf_tx, type = 'scatter', mode = 'lines+marker
 plot_ly(data = typical_usage, x = ~N_DAYS_ACTIVE, y = ~N_TXN, type = 'scatter', mode = 'markers') %>% 
   layout(xaxis = list(title = "Days Active out of last 90 (91 = Max Days)"),
          title = list(
-           text = "Some Claimants are likely bots with 1,000s of tx and activity 100% of days", 
+           text = "Some are bots w/ 1,000s of tx; active 100% of days", 
            y = 0.95)
   )
 
@@ -257,8 +264,7 @@ plot_ly(data = agg_swaps, x = ~PROTOCOL,
     layout(xaxis = list(title = "Protocol"),
            yaxis = list(title = "LOG Total Token Swaps (double counts)"),
          title = list(
-           text = "Swaps occur across numerous exchanges, including Uni v2", 
-           y = 0.95)
+           text = "Claimants use multiple exchanges")
   )
 
 ```
@@ -277,7 +283,7 @@ plot_ly(data = platform_agg, x = ~PROTOCOL,
     layout(xaxis = list(title = "Protocol"),
            yaxis = list(title = "Unique Traders"),
          title = list(
-           text = "Unique UNI Claimants show loyalty to Uniswap products", 
+           text = "Noticeable loyalty to Uniswap products", 
            y = 0.95)
   )
 
@@ -304,10 +310,9 @@ plot_ly(data = eth_vol, x = ~PROTOCOL,
            yaxis = list(title = "WETH Volume", range = c(0, 1e6)),
            barmode = 'group',
          title = list(
-           text = "Uniswap a leader in ETH volume*",  
-           y = 0.95),
+           text = "Uniswap a leader in ETH volume*"),
          annotations = list(x = 1, y = -0.075, 
-                            text = "*Curve Sell distorted by known MEV Bots", 
+                            text = "*Curve Sell distorted by 2 MEV Bots", 
                             showarrow = FALSE, xref='paper', yref='paper', 
                             xanchor='right', yanchor='auto')
     )
@@ -382,8 +387,8 @@ uni_balance <- auto_paginate_query(query = bal_query, api_key = readLines('api_k
 
 Of the `r nrow(uni_balance)` claimants with balance history available, `r sum(uni_balance$TOKEN_BALANCE < 1)` or 
 `r paste0(floor(100 * sum(uni_balance$TOKEN_BALANCE < 1)/nrow(uni_balance)), "%")`
-currently have a UNI balance under 1 (0 or dust), while `r sum(uni_balance$TOKEN_BALANCE > 500)` (< 1%) 
-have increased their balance.
+currently have a UNI balance under 1 (0 or some dust leftover), while `r sum(uni_balance$TOKEN_BALANCE > 500)` (< 1%) 
+have increased their balance beyond 500 UNI.
 
 ```{r}
 
@@ -399,7 +404,7 @@ plot_ly(data = uni_balance,
      layout(xaxis = list(title = "Latest UNI Balance"),
            yaxis = list(title = "# of Typical UNI Claimants"),
          title = list(
-           text = "Most UNI Claimants sold their Airdrop, but there are HODLers & Accumulatooors",  
+           text = "Most UNI Claimants sold the entire Airdrop",  
            y = 0.95)
      )
 
@@ -443,7 +448,7 @@ plot_ly(data = uni_month_churn,
   layout(
     title = list(text = "Of the 93% that dumped, most did so immediately.",
                  y = 0.95),
-    xaxis = list(title = "# Claimants Selling (Balance < 1)"),
+    xaxis = list(title = "# Claimants Cashing Out "),
     yaxis = list(title = "Year-Month")
   )
 
