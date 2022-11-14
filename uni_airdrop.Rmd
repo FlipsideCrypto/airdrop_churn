@@ -32,6 +32,7 @@ library(shroomDK)
 library(reactable)
 library(ggplot2)
 library(plotly)
+library(lubridate)
 library(dplyr)
 
 uni_query <- {
@@ -287,7 +288,9 @@ gets a disproportionate amount of ETH sell volume among claimants. But Otherwise
 
 ```{r}
 
-eth_vol <- typical_user_dex_swaps %>% filter(TOKEN_SYMBOL == 'WETH') %>% group_by(PROTOCOL) %>% 
+eth_vol <- typical_user_dex_swaps %>% 
+  filter(TOKEN_SYMBOL == 'WETH') %>% 
+  group_by(PROTOCOL) %>% 
     summarise(
     total_eth_buy_vol = sum(BUY_TOKEN_VOLUME, na.rm = TRUE),
     total_eth_sell_vol = sum(SELL_TOKEN_VOLUME, na.rm = TRUE)
@@ -374,17 +377,77 @@ FROM token_holder
 }
 
 uni_balance <- auto_paginate_query(query = bal_query, api_key = readLines('api_key.txt'))
-uni_balance_not0 <- uni_balance %>% filter(TOKEN_BALANCE >= 1)
+
 ```
 
 Of the `r nrow(uni_balance)` claimants with balance history available, `r sum(uni_balance$TOKEN_BALANCE < 1)` or 
-`r paste0(floor(100 * sum(uni_balance$TOKEN_BALANCE == 0)/nrow(uni_balance)), "%")`
-currently have a UNI balance under 1.
+`r paste0(floor(100 * sum(uni_balance$TOKEN_BALANCE < 1)/nrow(uni_balance)), "%")`
+currently have a UNI balance under 1 (0 or dust), while `r sum(uni_balance$TOKEN_BALANCE > 500)` (< 1%) 
+have increased their balance.
 
 ```{r}
-plot_ly(data = uni_balance_not0, x = ~TOKEN_BALANCE, type = 'histogram')
+
+uni_balance$balance_bucket <- cut(
+  x = uni_balance$TOKEN_BALANCE, 
+  breaks = c(-Inf,0.9999999,10,100,500, 1000,10000, Inf), 
+  labels = c("0-0.9999","1-10","10.01-100","100.01-500","500.01-1000","1000.01-10,000","10,000.01+")
+  )
+
+plot_ly(data = uni_balance, 
+        x = ~balance_bucket, 
+        type = 'histogram') %>% 
+     layout(xaxis = list(title = "Latest UNI Balance"),
+           yaxis = list(title = "# of Typical UNI Claimants"),
+         title = list(
+           text = "Most UNI Claimants sold their Airdrop, but there are HODLers & Accumulatooors",  
+           y = 0.95)
+     )
+
 ```
 
+## Churn 
+
+```{r}
+
+uni_balance_0 <- uni_balance %>% 
+  filter(TOKEN_BALANCE < 1) %>% 
+  mutate(churn_date = ymd(as.Date(LAST_BALANCE_CHANGE_DATE))) %>% 
+  group_by(churn_date) %>% 
+  summarise(num_churners = n())
+
+ymonth <- function(date){
+  y = year(date)
+  m = month(date)
+
+  if(nchar(m) == 1){
+    m <- paste0("0",m)
+  }
+  
+  return(paste0(y,"-",m))
+}
+
+uni_balance_0$churn_month <- sapply(uni_balance_0$churn_date, ymonth)
+
+uni_month_churn <- uni_balance_0 %>% group_by(churn_month) %>% 
+  summarise(total = sum(num_churners))
+
+```
+
+Among the `r paste0(floor(100 * sum(uni_balance$TOKEN_BALANCE < 1)/nrow(uni_balance)), "%")` of claimants who have sold their UNI (hold < 1 UNI as of the timestamp), `r uni_month_churn$total[uni_month_churn$churn_month == '2020-09']` did so in September 2020.
+
+```{r}
+plot_ly(data = uni_month_churn,
+        x = ~total, 
+        y = ~churn_month, 
+        type = 'bar') %>% 
+  layout(
+    title = list(text = "Of the 93% that dumped, most did so immediately.",
+                 y = 0.95),
+    xaxis = list(title = "# Claimants Selling (Balance < 1)"),
+    yaxis = list(title = "Year-Month")
+  )
+
+```
 
 
 
