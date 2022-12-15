@@ -405,14 +405,14 @@ simple_out <- hop_transfers_by_claimers %>%
            TO_ADDRESS_TYPE %in% c('EOA', 'EOA-0tx'))  %>% 
   mutate(USER_ADDRESS = FROM_ADDRESS) %>% 
   group_by(USER_ADDRESS) %>% 
-  summarise(simple_transfer_out = sum(AMOUNT)) 
+  summarise(simple_amount_out = sum(AMOUNT)) 
 
 simple_in <- hop_transfers_by_claimers %>%
   filter(TO_ADDRESS %in% hop_claimers$USER_ADDRESS & 
            FROM_ADDRESS_TYPE %in% c('EOA', 'EOA-0tx')) %>% 
   mutate(USER_ADDRESS = TO_ADDRESS) %>% 
   group_by(USER_ADDRESS) %>% 
-  summarise(simple_transfer_in = sum(AMOUNT))
+  summarise(simple_amount_in = sum(AMOUNT))
 
 ```
 
@@ -444,53 +444,52 @@ reactable(
 Categorizing claimers based on their post-claim activity; note: for users who might qualify for multiple classes,
 they are given the *first* class they qualify for. For example, a Dumpooor Intermediary would only be classified as a Dumpoooor:
 
-- Keepooooor: Claimed and sat on it w/o providing liquidity  
-    - token_balance >= CLAIMED_TOKEN_VOLUME
-    - amount_bought = 0
-    - amount_sold = 0
-    - amount_deposited_lp = 0
-    
-- Dumpooooor: Claimed and sold everything (may have received from other EOA) w/o providing liquidity.
-    - token_balance < 1
-    - amount_bought = 0
-    - amount_sold >= CLAIMED_TOKEN_VOLUME
-    - amount_deposited_lp = 0
-
-- Market Maker: Provided liquidity, may or may not have withdrawn and sold later.  
-    - amount_deposited_lp > 0 
-    - amount_withdrawn_lp >= 0
-    
-- Trader: Bought and Sold Hop, without having provided liquidity.
-    - amount_bought > 0
-    - amount_sold > 0
-    - amount_deposited_lp = 0
-    
-- Airdrop Maximizer: Received tokens from another EOA and sold, never providing liquidity or buying.
-    - amount_bought = 0
-    - amount_sold > 0
-    - simple_transfer_in > 0
-    - simple_transfer_out >= 0
-    - amount_deposited_lp = 0
-
-- Intermediary: never bought, never provided liquidity; transferred equal or more than it claimed to another EOA. Possibly affiliated with an Airdrop Maximizer.
-    - simple_transfer_out >= CLAIMED_TOKEN_VOLUME 
-    - amount_bought == 0 
-    - amount_deposited_lp == 0
-    
-- N/A: Anyone else, potentially doing a variety of maneuvers and not cleanly fitting into another category. 
+       - Keepooooor: Claimed and sat on it w/o providing liquidity  
+            - token_balance >= CLAIMED_TOKEN_VOLUME
+            - amount_bought = 0
+            - amount_sold = 0
+            - amount_deposited_lp = 0
+            
+        - Dumpooooor: Claimed and sold everything w/o providing liquidity (if received from another EOA, Maximizer)
+            - token_balance < 1 (this is specific to THIS analysis)
+            - amount_bought = 0
+            - amount_sold >= CLAIMED_TOKEN_VOLUME
+            - simple_amount_in = 0 
+            - amount_deposited_lp = 0
+        
+        - Market Maker: Provided liquidity, may or may not have withdrawn and sold later.  
+            - amount_deposited_lp > 0 
+            
+        - Trader: Bought and Sold Hop, without having provided liquidity.
+            - amount_bought > 0
+            - amount_sold > 0
+            - amount_deposited_lp = 0
+            
+        - Airdrop Maximizer: Received tokens from another EOA AND sold, never providing liquidity nor buying.
+            - amount_bought = 0
+            - amount_sold > 0
+            - simple_amount_in > 0
+            - amount_deposited_lp = 0
+        
+        - Intermediary: never bought, never provided liquidity; transferred equal or more than it claimed to another EOA. Possibly affiliated with an Airdrop Maximizer.
+            - simple_amount_out >= CLAIMED_TOKEN_VOLUME 
+            - amount_bought = 0 
+            - amount_deposited_lp = 0
+            
+        - Undefined: Anyone else, potentially doing a variety of maneuvers and not cleanly fitting into another category. 
+   
 
 ```{r, warning = FALSE, message = FALSE}
 
 hop_merge <- hop_merge %>% mutate(
 class = case_when(
  TOKEN_BALANCE >= CLAIMED_TOKEN_VOLUME & amount_bought == 0 & amount_sold == 0 & amount_deposited_lp == 0 ~ "Keepooor",
- TOKEN_BALANCE < 1 & amount_bought == 0 & amount_sold >= CLAIMED_TOKEN_VOLUME & amount_deposited_lp == 0 ~ "Dumpooor",
- amount_deposited_lp > 0 & amount_withdrawn_lp >= 0 ~ "Market Maker",
+ TOKEN_BALANCE < 1 & amount_bought == 0 & amount_sold >= CLAIMED_TOKEN_VOLUME & simple_amount_in == 0 & amount_deposited_lp == 0 ~ "Dumpooor",
+ amount_deposited_lp > 0 ~ "Market Maker",
  amount_bought > 0 & amount_sold > 0 & amount_deposited_lp == 0 ~ "Trader",
- amount_bought == 0 & amount_sold > 0 & simple_transfer_in > 0 &
-   simple_transfer_out == 0 & amount_deposited_lp == 0 ~ "Airdrop Maximizer",
-    simple_transfer_out >= CLAIMED_TOKEN_VOLUME & amount_bought == 0 & amount_deposited_lp == 0  ~ "Intermediary",
- TRUE ~ "N/A"
+ amount_bought == 0 & amount_sold > 0 & simple_amount_in > 0 & amount_deposited_lp == 0 ~ "Airdrop Maximizer",
+    simple_amount_out >= CLAIMED_TOKEN_VOLUME & amount_bought == 0 & amount_deposited_lp == 0  ~ "Intermediary",
+ TRUE ~ "Undefined"
   )
 )
 
