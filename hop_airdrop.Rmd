@@ -414,6 +414,13 @@ simple_in <- hop_transfers_by_claimers %>%
   group_by(USER_ADDRESS) %>% 
   summarise(simple_amount_in = sum(AMOUNT))
 
+cex_transfers_out <- hop_transfers_by_claimers %>% 
+  filter(FROM_ADDRESS %in% hop_claimers$USER_ADDRESS & 
+           TO_ADDRESS_TYPE %in% c('EOA-cex'))  %>% 
+  mutate(USER_ADDRESS = FROM_ADDRESS) %>% 
+  group_by(USER_ADDRESS) %>% 
+  summarise(cex_transfer_out = sum(AMOUNT))
+
 ```
 
 ## Airdrop Actions Table 
@@ -423,7 +430,7 @@ Merge everything for users (who claimed at least 1 HOP) into final table, swap N
 ```{r, warning = FALSE, message = FALSE}
 
 tbls = list(
-  buys, sales, deposits, withdraws, simple_in, simple_out
+  buys, sales, deposits, withdraws, simple_in, simple_out, cex_transfers_out
 )
 
 for(i in tbls){
@@ -457,6 +464,22 @@ they are given the *first* class they qualify for. For example, a Dumpooor Inter
             - simple_amount_in = 0 
             - amount_deposited_lp = 0
         
+          - Hedgoooor: Claimed, sold a piece, kept the rest. Never bought, received, provided liquidity
+            - token_balance < CLAIMED_TOKEN_VOLUME 
+            - token_balance > 0
+            - amount_bought = 0
+            - amount_sold < CLAIMED_TOKEN_VOLUME
+            - amount_sold > 0
+            - amount_deposited_lp = 0
+            - simple_amount_in = 0
+
+       - Exchangooor: Claimed, sent it all to a central exchange; never bought, received, nor provided liquidity
+           - token-balance = 0
+           - amount_bought = 0 
+           - amount_sold = 0
+           - cex_transfer_out >= CLAIMED_TOKEN_VOLUME
+           - amount_deposited_lp = 0
+
         - Market Maker: Provided liquidity, may or may not have withdrawn and sold later.  
             - amount_deposited_lp > 0 
             
@@ -483,14 +506,40 @@ they are given the *first* class they qualify for. For example, a Dumpooor Inter
 
 hop_merge <- hop_merge %>% mutate(
 class = case_when(
- TOKEN_BALANCE >= CLAIMED_TOKEN_VOLUME & amount_bought == 0 & amount_sold == 0 & amount_deposited_lp == 0 ~ "Keepooor",
- TOKEN_BALANCE < 1 & amount_bought == 0 & amount_sold >= CLAIMED_TOKEN_VOLUME & simple_amount_in == 0 & amount_deposited_lp == 0 ~ "Dumpooor",
- amount_deposited_lp > 0 ~ "Market Maker",
- amount_bought > 0 & amount_sold > 0 & amount_deposited_lp == 0 ~ "Trader",
- amount_bought == 0 & amount_sold > 0 & simple_amount_in > 0 & amount_deposited_lp == 0 ~ "Airdrop Maximizer",
-    simple_amount_out >= CLAIMED_TOKEN_VOLUME & amount_bought == 0 & amount_deposited_lp == 0  ~ "Intermediary",
- TRUE ~ "Undefined"
-  )
+  TOKEN_BALANCE >= CLAIMED_TOKEN_VOLUME & 
+    amount_bought == 0 & 
+    amount_sold == 0 & 
+    amount_deposited_lp == 0 ~ "Keepooor",
+  TOKEN_BALANCE < 1 & 
+    amount_bought == 0 & 
+    amount_sold >= CLAIMED_TOKEN_VOLUME & 
+    simple_amount_in == 0 &
+    amount_deposited_lp == 0 ~ "Dumpooor",
+  TOKEN_BALANCE < CLAIMED_TOKEN_VOLUME & 
+    TOKEN_BALANCE > 0 &
+    amount_bought == 0 & 
+    amount_sold < CLAIMED_TOKEN_VOLUME & 
+    amount_sold > 0 & 
+    amount_deposited_lp == 0 & 
+    simple_amount_in == 0 ~ "Hedgooor",
+  TOKEN_BALANCE == 0 & 
+    amount_bought == 0 & 
+    amount_sold == 0 & 
+    cex_transfer_out >= CLAIMED_TOKEN_VOLUME & 
+    amount_deposited_lp == 0 ~ "Exchangooor",
+  amount_deposited_lp > 0 ~ "Market Maker",
+  amount_bought > 0 & 
+    amount_sold > 0 &
+    amount_deposited_lp == 0 ~ "Trader",
+  amount_bought == 0 &
+    amount_sold > 0 & 
+    simple_amount_in > 0 & 
+    amount_deposited_lp == 0 ~ "Maximizooor",
+  simple_amount_out >= CLAIMED_TOKEN_VOLUME &
+    amount_bought == 0 &
+    amount_deposited_lp == 0  ~ "Intermediary",
+  TRUE ~ "Undefined"
+)
 )
 
 class_tbl <- as.data.frame(table(hop_merge$class))
